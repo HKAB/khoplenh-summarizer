@@ -1,11 +1,11 @@
 
 # VTV Khop Lenh AI summarizer 📈
 
-| All I need is money to become rich. - Anonymous
+> All I need is money to become rich. - Anonymous
 
 ![Stonk](./images/intro.jpg)
 
-Transcribe and summarization of Khop Lenh using Whisper and LLM
+Transcribe and summarization of Khop Lenh using Whisper and LLM. Regularly updated on my blog.
 
 
 ## Run Locally 🚀
