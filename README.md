@@ -45,6 +45,7 @@ python3 summarize.py
 ## To do 📝
 
 - [ ] Automate all this. 
+- [ ] Add diarization in Whisper pipeline all this. 
 
 
 ## Feedback 📢
@@ -53,3 +54,6 @@ python3 summarize.py
 
 - Anonymous Broker: AI freak me out. I'm out of job now. Please stop developing this tool. I need to feed my family. SIRR...
 
+## Thanks 🙏
+- [Vistral](https://huggingface.co/Viet-Mistral/Vistral-7B-Chat)
+- [WhisperX](https://github.com/m-bain/whisperX)
