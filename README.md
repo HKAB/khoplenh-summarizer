@@ -5,7 +5,7 @@
 
 ![Stonk](./images/intro.jpg)
 
-Transcribe and summarization of Khop Lenh using Whisper and LLM. Regularly updated on my blog.
+Transcribe and summarize Khop Lenh's video using Whisper and LLM. Regularly updated on my blog.
 
 
 ## Run Locally 🚀
