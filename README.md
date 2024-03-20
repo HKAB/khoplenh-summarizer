@@ -1,18 +1,17 @@
 
 # VTV Khop Lenh AI summarizer 📈
 
-> All I need is money to become rich. - Anonymous
+| All I need is money to become rich. - Anonymous
 
 ![Stonk](./images/intro.jpg)
 
-Transcribe and summarize Khop Lenh's video using Whisper and LLM. Regularly updated on my blog.
+Transcribe and summarize Khop Lenh's video using Whisper and LLM
 
 
 ## Run Locally 🚀
 
-1) Create main docker
-- I'm using `pytorch/pytorch:1.11.0-cuda11.3-cudnn8-devel` (make sure `--net host` for ease to receive llm output from vLLM, or mapping port which is exposed by vLLM docker)
-- Install Whisper by follow the setup in [m-bain/whisperX](https://github.com/m-bain/whisperX?tab=readme-ov-file#setup-%EF%B8%8F)
+1) Create a main docker
+- [Faster-whisper installation method](https://github.com/SYSTRAN/faster-whisper?tab=readme-ov-file#use-docker) (make sure use `--net host` when create Docker container to receive llm output from vLLM, or mapping port by `-p 8000-8002:8000-8002`)
 - Install https://pypi.org/project/yt-dlp/
 
 2) Create a second docker for vLLM
@@ -56,4 +55,4 @@ python3 summarize.py
 
 ## Thanks 🙏
 - [Vistral](https://huggingface.co/Viet-Mistral/Vistral-7B-Chat)
-- [WhisperX](https://github.com/m-bain/whisperX)
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
