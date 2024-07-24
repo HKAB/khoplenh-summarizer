@@ -8,13 +8,9 @@
 Transcribe and summarize Khop Lenh's video using Whisper and LLM
 
 
-## Run Locally 🚀
+## Run Locally (So easy now!) 🚀
 
-1) Create a main docker
-- [Faster-whisper installation method](https://github.com/SYSTRAN/faster-whisper?tab=readme-ov-file#use-docker) (make sure use `--net host` when create Docker container to receive llm output from vLLM, or mapping port by `-p 8000-8002:8000-8002`)
-- Install https://pypi.org/project/yt-dlp/
-
-2) Create a second docker for vLLM
+1) Setup model_repository folder for vLLM
 - Setup model_repository as in [vllm_backend](https://github.com/triton-inference-server/vllm_backend/tree/main/samples/model_repository)
 
 ```json
@@ -22,28 +18,29 @@ Transcribe and summarize Khop Lenh's video using Whisper and LLM
 {
     "model":"Viet-Mistral/Vistral-7B-Chat",
     "disable_log_requests": "true",
-    "gpu_memory_utilization": 0.5,
+    "gpu_memory_utilization": 1.0,
     "dtype": "bfloat16",
     "download_dir": "/workspace/cache_dir"
 }
 ```
 
-```sh
-docker run --gpus all -it -p 9000-9002:8000-8002 --shm-size=1G --ulimit memlock=-1 --ulimit stack=67108864 -v path/to/workspace:/workspace -w /workspace nvcr.io/nvidia/tritonserver:23.10-vllm-python-py3 tritonserver --model-store ./model_repository
-```
-
-Then run:
+2) Create only 1 docker by running:
 
 ```sh
-python3 download_wav.py <youtube_url>
-python3 transcribe.py <wav_path>
-python3 summarize.py
+bash run.sh
 ```
 
+3) Wait util the bash show up, then run:
+
+```sh
+python3 pipeline.py <YOUTUBE_LINK>
+```
+
+4) Result is written in markdown file in `temp` folder!
 
 ## To do 📝
 
-- [ ] Automate all this. 
+- [x] Automate all this. 
 - [ ] Add diarization in Whisper pipeline all this. 
 
 
@@ -55,4 +52,4 @@ python3 summarize.py
 
 ## Thanks 🙏
 - [Vistral](https://huggingface.co/Viet-Mistral/Vistral-7B-Chat)
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- [insanely-fast-whisper](https://github.com/Vaibhavs10/insanely-fast-whisper)
