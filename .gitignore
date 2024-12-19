@@ -201,3 +201,4 @@ pyrightconfig.json
 
 *.json
 *.md
+/model_repository

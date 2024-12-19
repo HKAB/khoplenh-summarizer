@@ -9,15 +9,7 @@ import requests
 import json
 from datetime import date
 import time
-
-CACHE_DIR = "/work/cache"
-OVERLAP_CHUNK = 10
-MAX_NEW_TOKENS = 512
-MAX_CHUNK_LENGTH = 2000
-
-SYSTEM_PROMPT = f"""Bạn là một trợ lí đầu tư chứng khoán Tiếng Việt. Nhiệm vụ của bạn là tổng hợp lại thông tin chính trong bài nói, đưa ra các ý chính quan trọng, thông tin về các mã cổ phiếu được nhắc đến.\n"""
-SYSTEM_PROMPT += "Không tự ý thêm thông tin, không đưa ra các thông tin không hữu ích, không quá ngắn.\n"
-SYSTEM_PROMPT += "TAKE A DEEP BREATH!\n"
+import argparse
 
 # yt-dlp --extract-audio --audio-format wav --postprocessor-args "-ar 16000" --download-archive downloaded.log --max-filesize 400.0M --max-downloads 10000 --output "%(uploader)s/%(playlist)s/%(playlist_index)s - %(title)s.%(ext)s" -i https://www.youtube.com/@VTVSHOWS/playlists
 ydl_opts = {
@@ -86,11 +78,20 @@ def download_audio(url):
 
 
 if __name__ == "__main__":
-    if download_audio(sys.argv[1]):
-        print("Downloaded audio successfully!")
-    else:
-        print("ERROR! Downloaded audio failed")
-        sys.exit(0)
+
+    # check if --url is provided
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--url", type=str, help="URL of the video")
+    parser.add_argument("--openai-api-key", type=str, help="OpenAI API key")
+    parser.add_argument("--output-filename", type=str, help="Output filename in markdown format")
+    args = parser.parse_args()
+
+    if args.url:
+        if download_audio(args.url):
+            print("Downloaded audio successfully!")
+        else:
+            print("ERROR! Downloaded audio failed")
+            sys.exit(0)
 
     if not os.path.exists("./temp/output.json"):
         # insanely-fast-whisper --file-name /work/khoplenh-summarizer/VTVMoney/NA/output.mp3 --device-id 0 --model-name openai/whisper-large-v3 --language vi
@@ -117,117 +118,163 @@ if __name__ == "__main__":
     whisper_output = json.load(open("./temp/output.json", "r"))
 
     if not os.path.exists("./temp/output.txt"):
-        # Run tritonserver command
-        if not check_vllm_available():
-            triton_env = os.environ.copy()
-            triton_env["CUDA_VISIBLE_DEVICES"] = "0"
-            proc = subprocess.Popen(
-                ["tritonserver", "--model-store", "./model_repository"],
-                env=triton_env,
+        # if --openai-api-key is provided, use OpenAI API to summarize the text
+        if args.openai_api_key:
+            import openai
+
+            client = openai.OpenAI(api_key=args.openai_api_key)
+        
+            SYSTEM_PROMPT = """
+            Bạn là một trợ lí đầu tư chứng khoán và được cung cấp hội thoại giữa các chuyên gia. Nhiệm vụ của bạn là tổng hợp lại thông tin chính trong bài nói chuyện theo cấu trúc:"
+
+            - Tổng hợp thông tin về thị trường
+            - Các mã cổ phiếu được nhắc đến và nhận xét của chuyên gia
+            - Chi tiết chia sẻ hữu ích khác
+
+            Bỏ qua các thông tin không liên quan, không tự ý thêm thông tin, tổng hợp phải chi tiết và không quá ngắn.
+            """
+
+            user_content = "".join([chunk["text"] for chunk in whisper_output["chunks"] if "Hãy subscribe cho kênh" not in chunk["text"]])
+
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": user_content
+                    }
+                ]
             )
+
+            all_text_outputs = completion.choices[0].message.content
+            with open("./temp/output.txt", "w+") as f:
+                f.write(all_text_outputs)
         else:
-            print("Tritonserver is already running")
+            CACHE_DIR = "/work/cache"
+            OVERLAP_CHUNK = 10
+            MAX_NEW_TOKENS = 512
+            MAX_CHUNK_LENGTH = 2000
 
-        # Wait for tritonserver to start
-        waited_time = 0
-        while True:
-            if check_vllm_available():
-                break
-            else:
-                waited_time += 1
-                print("Waiting for tritonserver to start...")
-                if waited_time * 4 > 60:
-                    print("ERROR: Timeout waiting for tritonserver")
-                    sys.exit(0)
-                time.sleep(4)
+            SYSTEM_PROMPT = f"""Bạn là một trợ lí đầu tư chứng khoán Tiếng Việt. Nhiệm vụ của bạn là tổng hợp lại thông tin chính trong bài nói, đưa ra các ý chính quan trọng, thông tin về các mã cổ phiếu được nhắc đến.\n"""
+            SYSTEM_PROMPT += "Không tự ý thêm thông tin, không đưa ra các thông tin không hữu ích, không quá ngắn.\n"
+            SYSTEM_PROMPT += "TAKE A DEEP BREATH!\n"
 
-        tokenizer = AutoTokenizer.from_pretrained(
-            "Viet-Mistral/Vistral-7B-Chat", cache_dir=CACHE_DIR
-        )
-
-        all_trans_filtered = []
-        for chunk in whisper_output["chunks"]:
-            if "Hãy subscribe cho kênh" in chunk["text"]:
-                continue
-            all_trans_filtered.append(chunk)
-
-        conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
-        content = [chunk["text"] + "\n" for chunk in all_trans_filtered]
-
-        chunk_content = []
-        current_chunk = ""
-
-        sent_idx = 0
-        while sent_idx < len(content):
-
-            temp_conversation = conversation + [
-                {"role": "user", "content": current_chunk + content[sent_idx]}
-            ]
-            input_ids = tokenizer.apply_chat_template(
-                temp_conversation, return_tensors="pt"
-            )
-            # print(sent_idx, input_ids.shape[1])
-            if input_ids.shape[1] > MAX_CHUNK_LENGTH:
-                human = f"""
-        {current_chunk}
-        ====================
-
-        Tổng hợp thông tin về thị trường:
-            (Các thông tin)
-        """
-                conversation.append({"role": "user", "content": human})
-                input_ids = tokenizer.apply_chat_template(
-                    conversation, return_tensors="pt"
+            # Run tritonserver command
+            if not check_vllm_available():
+                triton_env = os.environ.copy()
+                triton_env["CUDA_VISIBLE_DEVICES"] = "0"
+                proc = subprocess.Popen(
+                    ["tritonserver", "--model-store", "./model_repository"],
+                    env=triton_env,
                 )
-                chunk_content.append(input_ids)
+            else:
+                print("Tritonserver is already running")
 
-                if sent_idx == len(content) - 1:
+            # Wait for tritonserver to start
+            waited_time = 0
+            while True:
+                if check_vllm_available():
                     break
+                else:
+                    waited_time += 1
+                    print("Waiting for tritonserver to start...")
+                    if waited_time * 4 > 60:
+                        print("ERROR: Timeout waiting for tritonserver")
+                        sys.exit(0)
+                    time.sleep(5)
 
-                sent_idx -= OVERLAP_CHUNK
-                current_chunk = ""
+            tokenizer = AutoTokenizer.from_pretrained(
+                "Viet-Mistral/Vistral-7B-Chat", cache_dir=CACHE_DIR
+            )
 
-                conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
-                # slide back OVERLAP_CHUNK sentences, overlap OVERLAP_CHUNK sentences
-            else:
-                current_chunk = current_chunk + content[sent_idx]
-                sent_idx += 1
+            all_trans_filtered = []
+            for chunk in whisper_output["chunks"]:
+                if "Hãy subscribe cho kênh" in chunk["text"]:
+                    continue
+                all_trans_filtered.append(chunk)
 
-        all_summaries = []
-        for chunk in tqdm(chunk_content[:]):
-            text_input = tokenizer.batch_decode(chunk, skip_special_tokens=True)[
-                0
-            ].strip()
-            max_new_tokens = MAX_NEW_TOKENS + chunk.shape[1]
-            try:
-                response = vllm_generate(
-                    text_input, temperature=0, max_tokens=max_new_tokens, stream=False
+            conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
+            content = [chunk["text"] + "\n" for chunk in all_trans_filtered]
+
+            chunk_content = []
+            current_chunk = ""
+
+            sent_idx = 0
+            while sent_idx < len(content):
+
+                temp_conversation = conversation + [
+                    {"role": "user", "content": current_chunk + content[sent_idx]}
+                ]
+                input_ids = tokenizer.apply_chat_template(
+                    temp_conversation, return_tensors="pt"
                 )
-            except Exception as e:
-                print("ERROR: VLLM can't summarize the text")
-                print(e)
-                sys.exit(0)
+                # print(sent_idx, input_ids.shape[1])
+                if input_ids.shape[1] > MAX_CHUNK_LENGTH:
+                    human = f"""
+            {current_chunk}
+            ====================
 
-            all_summaries.append(response["text_output"][len(text_input) :].strip())
+            Tổng hợp thông tin về thị trường:
+                (Các thông tin)
+            """
+                    conversation.append({"role": "user", "content": human})
+                    input_ids = tokenizer.apply_chat_template(
+                        conversation, return_tensors="pt"
+                    )
+                    chunk_content.append(input_ids)
 
-        all_text_outputs = "\n\n".join(all_summaries)
-        with open("./temp/output.txt", "w+") as f:
-            f.write(all_text_outputs)
-        if proc:
-            proc.terminate()
+                    if sent_idx == len(content) - 1:
+                        break
+
+                    sent_idx -= OVERLAP_CHUNK
+                    current_chunk = ""
+
+                    conversation = [{"role": "system", "content": SYSTEM_PROMPT}]
+                    # slide back OVERLAP_CHUNK sentences, overlap OVERLAP_CHUNK sentences
+                else:
+                    current_chunk = current_chunk + content[sent_idx]
+                    sent_idx += 1
+
+            all_summaries = []
+            for chunk in tqdm(chunk_content[:]):
+                text_input = tokenizer.batch_decode(chunk, skip_special_tokens=True)[
+                    0
+                ].strip()
+                max_new_tokens = MAX_NEW_TOKENS + chunk.shape[1]
+                try:
+                    response = vllm_generate(
+                        text_input, temperature=0, max_tokens=max_new_tokens, stream=False
+                    )
+                except Exception as e:
+                    print("ERROR: VLLM can't summarize the text")
+                    print(e)
+                    sys.exit(0)
+
+                all_summaries.append(response["text_output"][len(text_input) :].strip())
+
+            all_text_outputs = "\n\n".join(all_summaries)
+            with open("./temp/output.txt", "w+") as f:
+                f.write(all_text_outputs)
+            if proc:
+                proc.terminate()
     else:
         all_text_outputs = open("./temp/output.txt", "r").read()
 
     # CUSTOM POST-PROCESSING
-    stock_in_news = set()
+    stock_in_news = []
+    import re
 
-    news_bullets = all_text_outputs.split("\n")
-    for news_bullet in news_bullets:
-        words = news_bullet.split(" ")
-        for word in words:
-            # check if word is full uppercase
-            if word.isupper() and len(word) > 1 or word == "VN-Index":
-                stock_in_news.add(word.replace(",", "").replace(".", ""))
+    # find all stock in the news that is full uppercase and have more than 3 characters
+    stock_in_news = set(re.findall(r"\b[A-Z]{3,}\b", all_text_outputs))
+
+    # news_bullets = all_text_outputs.split("\n")
+    # for news_bullet in news_bullets:
+    #     words = news_bullet.split(" ")
+    #     for word in words:
+    #         # check if word is full uppercase
+    #         if word.isupper() and len(word) > 1 or word == "VN-Index":
+    #             stock_in_news.add(word.replace(",", "").replace(".", ""))
 
     stock_time_refer = {}
     for stock in stock_in_news:
@@ -243,7 +290,7 @@ if __name__ == "__main__":
     html_content += f"layout: stock_post\ntitle: Khớp Lệnh {date.today().strftime('%d/%m/%Y')}\nexcerpt: summarization of 'Khop Lenh today'\ncategories: Invest\n"
     html_content += "---\n\n"
 
-    video_id = sys.argv[1].split("/")[-1]
+    video_id = args.url.split("v=")[1]
     html_content += f'<iframe id="player" src="https://www.youtube.com/embed/{video_id}?enablejsapi=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>'
     html_content += "\n\n"
 
@@ -274,5 +321,14 @@ if __name__ == "__main__":
     html_content += "\n\n"
     html_content += all_text_outputs
 
-    with open(f'./temp/{date.today().strftime("%d%m%Y")}.md', "w") as f:
-        f.write(html_content)
+    # if --output-filename is provided, write the content to the file
+    if args.output_filename:
+        with open(f"./temp/{args.output_filename}.md", "w") as f:
+            f.write(html_content)
+    else:
+        with open(f'./temp/{date.today().strftime("%d%m%Y")}.md', "w") as f:
+            f.write(html_content)
+
+    os.remove("./temp/output.wav")
+    os.remove("./temp/output.json")
+    os.remove("./temp/output.txt")
